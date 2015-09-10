@@ -1,0 +1,202 @@
+---
+title: "MATH 214: Homework 01"
+author: Dean Young
+date: "Due Wednesday 2015/2/18 1:00pm on Moodle"
+output: html_document
+---
+
+
+
+```{r, echo=FALSE}
+options(warn=-1)
+suppressPackageStartupMessages(library(rvest))
+suppressPackageStartupMessages(library(leaflet))
+suppressPackageStartupMessages(library(devtools))
+suppressPackageStartupMessages(library(htmlwidgets))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(ggthemes))
+suppressPackageStartupMessages(library(ggmap))
+suppressPackageStartupMessages(library(RColorBrewer))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(RCurl))
+suppressPackageStartupMessages(library(scales))
+```
+
+
+```{r, echo=FALSE}
+flights <- read.csv("flights.csv", stringsAsFactors = FALSE) %>%
+  tbl_df() %>%
+  mutate(date=as.Date(date))
+weather <- read.csv("weather.csv", stringsAsFactors = FALSE) %>%
+  tbl_df() %>%
+  mutate(date=as.Date(date))
+planes <- read.csv("planes.csv", stringsAsFactors = FALSE) %>% tbl_df()
+airports <- read.csv("airports.csv", stringsAsFactors = FALSE) %>% tbl_df()
+```
+
+
+## Question 1:
+
+* Plot a "time series" of the number of flights that were delayed by > 30 minutes on each day.  i.e.
+    + the x-axis should be some notion of time
+    + the y-axis should be the proportion.
+* Which seasons did we tend to see the most and least delays of > 30 minutes.
+
+```{r, echo=FALSE}
+flights %<>% mutate(late = ifelse(dep_delay > 30, 1, 0))
+
+flights %<>% mutate(
+  season = ifelse(date < "2011-03-01", "winter", 
+                  ifelse(date < "2011-06-01", "spring",
+                         ifelse(date < "2011-09-01", "summer", "fall")))) 
+flights$season <- factor(flights$season, levels=c("winter", "spring", "summer", "fall"))
+
+ggplot(data=flights, aes(x=season, y=late, fill="red")) + 
+  geom_bar(stat="identity", na.rm=TRUE) + guides(fill=FALSE) +
+  ggtitle("Number Late flights (>30 min.) by Season") + xlab("Season") + ylab("Late Flights")
+
+p_flights <- flights %>% group_by(season) %>% 
+  summarise(p_late = mean(late, na.rm = TRUE))
+
+ggplot(data=p_flights, aes(x=season, y=p_late, fill="red")) +
+  geom_bar(stat="identity", na.rm=TRUE) + guides(fill=FALSE) +
+  ylab("Proportion of Late Flights") + xlab("Season") +
+  ggtitle("Proportion of Late flights (>30 min.) by Season")
+
+
+```
+
+When just graphing the number of late flights by raw totals, it appears that, counterintuitively, winter does not have very many late flights. However, when graphing by proportion, it shows that winter is pretty much up there with the other seasons. Winter just happens to have less total flights.
+
+## Question 2:
+
+I actually prefer flying on older planes.  Even though they aren't as nice, they tend to have more room.  Which airlines should I favor?
+
+```{r, echo=FALSE}
+planes %<>% mutate(age = 2015 - year) 
+  
+avg.age.car <- 
+  right_join(select(planes,plane,age), select(flights,plane,carrier), by="plane") %>% 
+  group_by(carrier) %>% summarise(avg_age = mean(age, na.rm= TRUE))
+
+ggplot(data=avg.age.car, aes(x=reorder(factor(carrier), avg_age), y=avg_age, fill="red")) + 
+  geom_bar(stat="identity", na.rm=TRUE) + guides(fill=FALSE) +
+  xlab("Carrier") + ylab("Average Age") + ggtitle("Average Age of Planes by Carrier")
+
+
+```
+
+Looks like American Airlines or Envoy Air is your best bet.
+
+
+## Question 3:
+
+* What states did listed Southwest Airlines flights tend to fly to?
+* What states did all Southwest Airlines flights tend to fly to?
+
+
+```{r, echo=FALSE}
+state.data <- map_data("state") %>% tbl_df()
+state.info <- read.csv("states.csv", header=TRUE) %>% tbl_df()
+
+
+wn_data <- flights %>% filter(carrier == "WN") %>% rename(iata=dest)
+
+q <- wn_data %>% select(iata) %>% count(iata)
+r <- select(airports,iata,state)
+q %<>% left_join(r,q,by = "iata")
+m <- q %>% group_by(state) %>% summarise(count = sum(n))
+
+m %<>% left_join(state.info,m,by = "state")
+state.data <- inner_join(select(state.data,long,lat,region), m, by=c("region" = "fullname"))
+
+ggplot(state.data, aes(long, lat, group = region)) +
+  geom_polygon(aes(fill = count)) +
+  geom_path(color="white") +
+  scale_fill_gradient(name="Frequency", low='white', high='red') +
+  labs(title = "States With Most Southwest Individual Flights")
+
+q2 <- wn_data %>% mutate(x=1) %>% group_by(flight,iata) %>% summarise(n=sum(x)) %>% count(iata)
+q2 %<>% left_join(r,q2,by = "iata")
+m2 <- q2 %>% group_by(state) %>% summarise(count = sum(n))
+
+m2 %<>% left_join(state.info,m2,by = "state")
+state.data <- inner_join(select(state.data,long,lat,region), m2, by=c("region" = "fullname"))
+
+ggplot(state.data, aes(long, lat, group = region)) +
+  geom_polygon(aes(fill = count)) +
+  geom_path(color="white") +
+  scale_fill_gradient(name="Frequency", low='white', high='red') +
+  labs(title = "State With Most Southwest Routes")
+```
+
+These maps make intuitive sense. Texas clearly dominates in both maps because the airport is in Houston and it's easy to send flights to nearby cities. In the map for individual flights, every state pales in comparison to Texas. However, in the map for routes, the other states are closer in frequency to Texas. This is because it's possible for routes going to Texas cities to be flown many times in one day since the distance is small. Routes going to other states have a longer turn-around time. This explains how Texas could have a bunch more individual flights but not necessarily as many more routes.
+
+
+## Question 4:
+
+What weather patterns are associated with the biggest departure delays?
+
+```{r, echo=FALSE}
+cond <- weather %>% select(date,hour,conditions)
+set.seed(76)
+flights.cond <- flights%>% left_join(cond,by=c("date","hour"))
+bar.data <- flights.cond %>% na.omit() %>% group_by(conditions) %>% summarise(avg_delay = mean(dep_delay,na.rm=TRUE)) 
+
+ggplot(data=bar.data, aes(x=reorder(factor(conditions), avg_delay), y=avg_delay,fill="red")) + 
+  geom_bar(stat="identity", na.rm=TRUE) + guides(fill=FALSE) +
+  xlab("Weather Condition") + ylab("Departure Delay (mins.)") + ggtitle("Average Departure Delay by Weather Condition") + theme(axis.text.x = element_text(angle=90,vjust=.75))
+
+fog.clear <- flights.cond %>% filter(conditions %in% c("Patches of Fog", "Shallow Fog", "Fog", "Clear"))
+fog.clear %<>% mutate(conditions2=ifelse(conditions == "Clear","Clear","Foggy"))
+bar.fog.clear <- fog.clear %>% group_by(conditions2) %>% summarise(avg_hour=mean(hour))
+
+bar.fog.clear
+```
+
+The barplot makes sense in general. However, it seems odd that "foggy" conditions are associated with less delays than "clear" conditions. My hypothesis is that foggy conditions generally occur in the mornings where there is less activity going on which allows for less delays. Since the "hour" variable is on a 24 hour basis, I can look at the average "hour" each type of condition had to confirm this. The average hour for "clear" conditions is at about 2:30 in the afternoon. The average hour for "foggy" conditions is at about 8:20 in the morning.
+
+
+## Question 5:
+
+I want to know what proportionately regions (NE, south, west, midwest) each carrier flies to from Houston in the month of July.  Consider the `lubridate` package.
+
+```{r, echo=FALSE}
+july.data <- flights %>% filter(date < "2011-08-01") %>% filter(date >= "2011-07-01") %>%
+  rename(iata=dest)
+july.data %<>% left_join(select(airports,iata,state),july.data,by="iata")
+july.data %<>% left_join(select(state.info,state,region),july.data,by="state")
+july.data %<>% select(carrier,region) %>% arrange(region)
+
+ggplot(na.omit(july.data), aes(x=carrier, y=as.numeric(region), fill=region)) +
+  geom_bar(stat="identity", position="fill") + ylab("proportion") + 
+  labs(title = "Proportion of Flights to 4 Main Regions")
+
+
+```
+
+It's unsurprising that the south is flown to a lot, since the airport is in Houston. Certain airlines also fly to only one region. There's pretty much nothing out in the mid-west...especially when it's July and there's great weather elsewhere. I'm not surprised that the midwest is not flown to often. The west appears to be flown to a lot by most carriers. This makes sense since California has some pretty good weather and tourist locations in July.
+
+
+## Question 6:
+
+Which carrier(s) are the worst offenders of departing late?
+
+
+```{r, echo=FALSE}
+flights %>% group_by(carrier) %>% summarise(avg_late = mean(dep_delay,na.rm=TRUE)) %>%
+  ggplot(aes(x=reorder(carrier,avg_late), y=avg_late, fill="red")) +
+  geom_bar(stat="identity") + guides(fill=FALSE) +
+  ylab("time (min.)") + xlab("carrier") +
+  ggtitle("Average Departure Delay by Carrier")
+
+flights %>% group_by(carrier) %>% summarise(prop_late = mean(late,na.rm=TRUE)) %>%
+  ggplot(aes(x=reorder(carrier,prop_late), y=prop_late, fill="red")) +
+  geom_bar(stat="identity") + guides(fill=FALSE) +
+  ylab("proportion") + xlab("carrier") +
+  labs(title = "Proportion of Departures Delayed >30 min. by Carrier")
+
+```
+
+Jetblue tops the list for worst offenders of departing late, both for proportion of departures delayed by more than 30 minutes and by average departure delay. It is unsurprising that most carriers with a poor average departure delay have a high proportion of departures delayed by greater than 30 minutes. One small exception is Southwest, which tops the list for average departure delay (almost 15 minutes), but isn't as bad for delays greater than 30 minutes (about 12% of flights). This suggests that Southwest is consistently late, but not by a lot each time.

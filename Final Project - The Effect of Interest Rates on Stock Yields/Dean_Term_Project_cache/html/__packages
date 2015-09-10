@@ -1,0 +1,10 @@
+base
+dplyr
+ggplot2
+magrittr
+zoo
+xts
+Quandl
+lubridate
+tseries
+lmtest
