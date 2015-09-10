@@ -1,0 +1,192 @@
+---
+title: "MATH 241: Homework 04"
+author: "Dean Young"
+date: "Due Friday 2015/4/17 5:00pm on Moodle"
+output: html_document
+---
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(rgdal))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(rvest))
+suppressPackageStartupMessages(library(tidyr))
+suppressPackageStartupMessages(library(maps))
+suppressPackageStartupMessages(library(ggmap))
+suppressPackageStartupMessages(library(lubridate))
+suppressPackageStartupMessages(library(stringr))
+options(warn=-1)
+```
+
+
+## NOTE: QUESTION 1 CONTAINS SENSITIVE DATA AND IS COMMENTED OUT OF THIS REPORT.
+
+## Question 1:
+
+Consider the breast cancer from HW02.  Plot, using the `ww` shapefiles provided in Lecture 20, three maps:
+
+* A map of overall breast cancer incidence rate for each census tract:  $\frac{y_i}{N_i}$ where for each census tract $i=1,\ldots,n$
+    + $y_i$ is the total number of cases
+    + $N_i$ is the total number of people
+* A map of the median income **quintiles**.  i.e. your map should be a [chrolopleth map](http://2.bp.blogspot.com/_Vod56KuZXlk/S9IdL4yW14I/AAAAAAAAAFc/jHIE6fPuQvM/s1600/standardized+c+map.PNG) involving only 5 colors.
+* A map of that gives a sense of census tracts with high and low breast cancer incidence rates *while taking income into account*.  The approach I'm thinking of is rather simple mathematically, but requires some thought to come up with.  
+
+Notes: 
+
+* You should use the solutions from HW02.
+* Do not import the shapefiles using the code from Lecture 20, but rather the `readOGR()` func`tion from Lectures 23 and 25.  
+
+```{r, echo=FALSE}
+# WA.data <- read.csv("HW_2_Data.csv") %>% tbl_df() %>% rename(pop = SE_T001_001, FIPS = Geo_FIPS, income = SE_T093_001) %>% 
+#   select(FIPS,pop,income)
+# SEER <- read.csv("Space Time Surveillance Counts 11_05_09.txt", header=TRUE) %>% tbl_df() %>% 
+#   rename(FIPS = StateCoTractComb) %>% filter(SiteRecodeTxt == "Breast ") %>% count(FIPS)
+# 
+# # One census tract has no breast cancer incidence so the filter excludes that observation. I have to manually add it
+# # back in
+# a <- filter(WA.data, !(FIPS %in% SEER$FIPS))
+# t <- as.data.frame(t(c(a$FIPS[1],0)))
+# colnames(t) <- c("FIPS","n")
+# SEER <- bind_rows(SEER,t)
+# 
+# WA.data <- left_join(SEER, WA.data, by="FIPS") %>% mutate(prop = n/pop, FIPS = as.character(FIPS))
+# 
+# b <- quantile(WA.data$income, prob=seq(0,1,.2))
+# 
+# WA.data <- mutate(WA.data, quintile = ifelse(income < b[2],"$0 - $37,619",ifelse(income < b[3],"$37,620 - $45,589",
+#            ifelse(income < b[4],"$45,590 - $53,549",ifelse(income < b[5],"$53,550 - $63,933","$63,934 - $133,756")))))
+# 
+# model <- lm(prop ~ income, data=WA.data)
+# summary(model)
+# resid <- as.data.frame(resid(model))
+# colnames(resid) <- "resid"
+# WA.data <- bind_cols(WA.data,resid)
+# 
+# 
+# WA.shapefile <- readOGR(dsn=".", layer="ww", verbose=FALSE) %>%
+#   spTransform(CRS("+proj=longlat +ellps=WGS84"))
+# 
+# WA.map <- fortify(WA.shapefile, region="FIPS") %>% tbl_df()
+# 
+# WA.map <- inner_join(WA.map, WA.data, by=c("id"="FIPS"))
+# 
+# ggplot(WA.map, aes(x=long, y=lat, group=group, fill=prop)) +
+#   geom_polygon() +
+#   geom_path(col="black", size=0.5) +
+#   coord_map() +
+#   scale_fill_continuous(low="green", high="red", name="Prop.") +
+#   theme_bw() +
+#   ggtitle("Breast Cancer Incidence Rate in Western Washington")
+# 
+# ggplot(WA.map, aes(x=long, y=lat, group=group, fill=quintile)) +
+#   geom_polygon() +
+#   geom_path(col="black", size=0.5) +
+#   scale_fill_brewer(palette = "Blues", name="Quintile") +
+#   coord_map() +
+#   theme_bw() +
+#   ggtitle("Western Washington Income Quintiles")
+# 
+# ggplot(WA.map, aes(x=long, y=lat, group=group, fill=resid)) +
+#   geom_polygon() +
+#   geom_path(col="black", size=0.5) +
+#   scale_fill_continuous(low="green", high="red", name="Prop.") +
+#   coord_map() +
+#   theme_bw() +
+#   ggtitle("Breast Cancer Incidence Rate in Western Washington (Income Controlled via OLS)")
+```
+
+No noticeable difference when controlling for income. The OLS regression line is just too flat.
+
+
+
+## Question 2:
+
+Download the results of the 2000 election from the [School of Public Affairs at American University in DC](http://www.american.edu/spa/ccps/Data-Sets.cfm) and create two maps involving only the lower 48 states that show:
+
+* The proportion of people who voted for Bush at a **state** level
+* The proportion of people who voted for Bush at a **county** level
+
+where
+
+* Counties are filled with red when they tend to favor Bush
+* Counties are filled with blue when they tend to not favor Bush
+* Counties are filled with purple when they tend to be split
+
+Then answer the following questions:
+
+1. Comment on the biggest differences when changing from "county" resolution to "state" resolution.
+2. Comment on how the maps align with the idea of the [Nine Nations of North America](http://en.wikipedia.org/wiki/The_Nine_Nations_of_North_America)
+3. Which states exhibit the greatest **within state heterogeneity** in voting?  Come up with a mathematical justification.
+
+
+Notes:
+
+* Hint:  `scale_fill_gradient2(name="", low="blue", high="red", mid="purple")` for the appropriate "mid" point.  See the ggplot2 webpage for this command for inspiration.
+* I believe the county map is from 2010, whereas the election data is from 2000, as such certain census tracts will not match up.  The number is not that large.
+* [Counties in Virginia](http://en.wikipedia.org/wiki/List_of_counties_in_Virginia)
+
+
+```{r, echo=FALSE}
+clean.text <- function(text){
+  text <- gsub("[^[:alnum:]]", "", text)
+  text <- gsub(" ", "", text)
+  text <- tolower(text)
+  return(text)
+}
+
+US.state <- map_data("state") %>% tbl_df() %>% 
+  mutate(region=clean.text(region))
+US.county <- map_data("county") %>% tbl_df() %>% 
+  mutate(region=clean.text(region),
+         subregion=clean.text(subregion),
+         subregion=str_c(region,subregion,sep=", "))
+
+
+election <- read.csv("COUNTY.csv") %>% tbl_df() %>% 
+  mutate(STATE=clean.text(STATE), COUNTY=clean.text(COUNTY),
+         subregion = str_c(STATE, COUNTY, sep=", "), 
+         PBUSH = as.numeric(as.character(PBUSH))) %>%
+  filter(STATE != "hawaii" & STATE != "alaska" & STATE != "districtofcolumbia")
+  
+election.state <- election %>% group_by(STATE) %>% summarize(PBUSH = mean(PBUSH))
+
+US.county <- inner_join(US.county,election,by="subregion")
+
+ggplot(US.county, aes(x=long, y=lat, group=group, fill=PBUSH)) +
+  scale_fill_gradient2(name="Prop.", low="blue", mid="purple", high="red", midpoint=.5) +
+  geom_polygon() +
+  geom_path(col="black", size=0.01) +
+  coord_map() +
+  ggtitle("Proportion of Votes for Bush in 2000 by County")
+
+US.state <- inner_join(US.state,election.state,by=c("region"="STATE"))
+
+ggplot(US.state, aes(x=long, y=lat, group=group, fill=PBUSH)) +
+  scale_fill_gradient2(name="Prop.", low="blue", mid="purple", high="red", midpoint=.5) +
+  geom_polygon() +
+  geom_path(col="black", size=0.01) +
+  coord_map() +
+  ggtitle("Proportion of Votes for Bush in 2000 by State")
+
+top.five <- US.county %>% group_by(STATE) %>% summarise(var=var(PBUSH)) %>% top_n(5,var)
+
+bot.five <- US.county %>% group_by(STATE) %>% summarise(var=var(PBUSH)) %>% top_n(5,desc(var))
+
+comb.five <- bind_rows(top.five,bot.five)
+
+ggplot(filter(US.county,region %in% comb.five$STATE), aes(x=long, y=lat, group=group, fill=PBUSH)) +
+  scale_fill_gradient2(name="Prop.", low="blue", mid="purple", high="red", midpoint=.5) +
+  geom_polygon() +
+  geom_path(data=US.state, aes(x=long, y=lat, group=group), col="black", size=0.01) +
+  coord_map() +
+  ggtitle("Top 5 Most Homogeneous/Heterogeneous States")
+
+```
+
+At the county resolution, it appears that Gore was more popular. At the state resolution, it appears that Bush was more popular. The only true blue state was Mass. Even the more liberal states on the west coast were at least purple. This is likely due to Bush winning a less but big counties and Gore winning more but small counties.
+
+The voting patterns on the state level seem to somewhat segregate as the "Nine Nations of America" would suggest. Each "nation" appears to have a closely uniform color on the map meaning each state voted at roughly same proportions as other states in the same "nation".
+
+The top 5 most heterogeneous/homogeneous states were determined by the variance of the proportion of voters for Bush in the counties for each state. The top 5 most heterogeneous states are Alabama, Colorado, Mississippi, New Mexico, and North Dakota. Notice how the top 5 most homogeneous states are clustered in the New England area and are pretty much completely blue. The North East is known to be pretty liberal.
+
+

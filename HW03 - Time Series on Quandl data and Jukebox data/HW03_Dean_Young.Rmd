@@ -1,0 +1,244 @@
+---
+title: "MATH 214: Homework 03"
+author: Dean Young
+date: "Due Friday 2015/3/20 5:00pm on Moodle"
+output: html_document
+---
+
+Note to Albert: Install the "sandwich" package.
+
+```{r, echo=FALSE}
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(Quandl))
+suppressPackageStartupMessages(library(lubridate))
+suppressPackageStartupMessages(library(sandwich))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(magrittr))
+options(warn=-1)
+```
+
+
+## Question 1:
+
+For each academic year between 2003-2004 thru 2008-2009, who were the top 10 artists played?  Define
+
+* the start of academic year as the first Tuesday in September
+* the end of the academic year as the last Monday in January plus 15 weeks plus 4 days (i.e. the Friday of that week)
+
+You can find these dates manually, or with the help of lubridate functions, or entirely using lubrdiate functions.  Display the results in easily digestible format.  
+
+
+```{r, echo=FALSE}
+jukebox <- read.csv("jukebox.csv", header=TRUE)
+jukebox$date_time <- parse_date_time(jukebox$date_time, "%b %d %H%M%S %Y" )
+jukebox %<>% rename(Date=date_time)
+y0304 <- interval(ymd(20030902), ymd(20040430))
+y0405 <- interval(ymd(20040907), ymd(20050506))
+y0506 <- interval(ymd(20050906), ymd(20060512))
+y0607 <- interval(ymd(20060905), ymd(20070511))
+y0708 <- interval(ymd(20070904), ymd(20080509))
+y0809 <- interval(ymd(20080902), ymd(20090501))
+
+jukebox$year <-
+  ifelse(jukebox$Date %within% y0304, "03-04", "") %>%
+  ifelse(jukebox$Date %within% y0405, "04-05", .) %>%
+  ifelse(jukebox$Date %within% y0506, "05-06", .) %>%
+  ifelse(jukebox$Date %within% y0607, "06-07", .) %>%
+  ifelse(jukebox$Date %within% y0708, "07-08", .) %>%
+  ifelse(jukebox$Date %within% y0809, "08-09", .)
+
+jukebox2 <- filter(jukebox, year != "")
+
+top.ten <- filter(jukebox2, year=="03-04") %>% count(artist) %>% top_n(10,n) %>% 
+  arrange(desc(n)) %>% select(artist) %>% rename("03-04"=artist)
+
+top.ten <- bind_cols(top.ten, filter(jukebox2, year=="04-05") %>% count(artist) %>% top_n(10,n) %>% 
+                       arrange(desc(n)) %>% select(artist) %>% rename("04-05"=artist))
+top.ten <- bind_cols(top.ten, filter(jukebox2, year=="05-06") %>% count(artist) %>% top_n(10,n) %>% 
+                       arrange(desc(n)) %>% select(artist) %>% rename("05-06"=artist))
+top.ten <- bind_cols(top.ten, filter(jukebox2, year=="06-07") %>% count(artist) %>% top_n(10,n) %>% 
+                       arrange(desc(n)) %>% select(artist) %>% rename("06-07"=artist))
+top.ten <- bind_cols(top.ten, filter(jukebox2, year=="07-08") %>% count(artist) %>% top_n(10,n) %>% 
+                       arrange(desc(n)) %>% select(artist) %>% rename("07-08"=artist))
+top.ten <- bind_cols(top.ten, filter(jukebox2, year=="08-09") %>% count(artist) %>% top_n(10,n) %>% 
+                       arrange(desc(n)) %>% select(artist) %>% rename("08-09"=artist))
+View(top.ten)
+```
+
+
+
+## Question 2:
+
+Plot a time series of the number of songs played each week.  What patterns do you observe?  
+
+```{r, echo=FALSE}
+t <- ymd(20031130)
+t <- t + weeks(0:269)
+a <- interval(t[1], t[1] + weeks(1))
+data <- filter(jukebox2, Date %within% a == TRUE) %>% count(Date) %>% summarise(tot=sum(n)) %>% mutate(Date=t[1])
+for (i in 2:269) 
+{
+a <- interval(t[i], t[i] + weeks(1))
+data <- bind_rows(data,filter(jukebox2, Date %within% a == TRUE) %>% count(Date) 
+         %>% summarise(tot=sum(n)) %>% mutate(Date=t[i]))
+}
+data2 <- filter(data,tot>0)
+
+ggplot(data=data2, aes(x=Date, y=tot)) + geom_point() + geom_smooth() +
+  xlab("Time") + ylab("Number of Songs") + ggtitle("Songs Played by Week")
+```
+
+The trend of number of songs played by week seems pretty stable over the school year. The low points are around winter break which is expected. The jukebox usage seems to be on the rise at the beginning of 2009.
+
+## Question 3:
+
+Compare Eminem, Talking Heads, and Girl Talk's month by month popularity over this time period.
+
+```{r, echo=FALSE}
+jukebox3 <- filter(jukebox2, artist=="Eminem" | artist=="Talking Heads" | artist=="Girl Talk" )
+t <- ymd(20031201)
+t <- t + months(0:66)
+a <- interval(t[1], t[1] + months(1))
+data.artist <- filter(jukebox3, Date %within% a == TRUE) %>% count(artist) %>% mutate(Date=t[1])
+for (i in 2:66) 
+{
+a <- interval(t[i], t[i] + months(1))
+data.artist <- bind_rows(data.artist,filter(jukebox3, Date %within% a == TRUE) %>% count(artist) %>% mutate(Date=t[i]))
+}
+
+ggplot(data=data.artist, aes(x=Date, y=n)) + geom_point(aes(col=artist)) + geom_smooth(aes(col=artist), se=FALSE) +
+  xlab("Time") + ylab("Times Played per Month") + 
+  ggtitle("Comparing Popularity of 'Eminem', 'Talking Heads', and 'Girl Talk'")
+```
+
+Eminem was popular around 2004 but gradually fell and eventually ended up below Talking Heads which slowly built up popularity over the years. Girl Talk had a large spike when it was first listened to but then faded away.
+
+
+## Question 4:
+
+Did jukebox using Reedies' taste in songs change much during the period of the Sunday night blues?  Define this period to be between 4pm and 11pm on Sundays.  
+
+
+
+```{r, echo=FALSE}
+jukebox.sun <- filter(jukebox2, wday(Date) == 1) %>% filter(hour(Date) > 15 & hour(Date) < 23)
+top.ten.sun <- count(jukebox.sun, artist) %>% top_n(10,n) %>% mutate(prop=n/sum(n), se = sqrt(prop*(1-prop)/sum(n)), type="sun")
+top.ten.gen <- filter(jukebox2, artist %in% top.ten.sun$artist == TRUE) %>% count(artist) %>% top_n(10,n) %>%
+  mutate(prop=n/sum(n), se = sqrt(prop*(1-prop)/sum(n)), type="gen")
+
+top_ten <- bind_rows(top.ten.sun,top.ten.gen)
+
+ggplot(data=top_ten, aes(x=artist, y=prop, fill=type)) + geom_bar(stat="identity", position="dodge") +
+  xlab("Artist") + ylab("Proportion of Songs Played") + ggtitle("Top 10 Artists for Sunday Night Blues") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_discrete(name="Type",labels=c("General","Sunday")) +
+  geom_errorbar(aes(ymax = prop + 1.96*se, ymin= prop - 1.96*se), col="black", position="dodge")
+```
+
+I took the top 10 most played artists during the period of "Sunday Night Blues" and compared the proportion played during the "Sunday Night Blues" period to the proportion played during the entire data set. A few artists were played significantly more during this period than in general and the difference was statistically significant according to the error bars. "Outkast" has a notable result in that it is actually played much less during the "Sunday Night Blues" than in general. It still made the top 10 list likely because it is a popular band in general.
+
+
+
+
+
+
+## Question 5:
+
+We want to study the volatility of bitcoin prices.  Let our measure of volatility be the relative change from day-to-day in price.  For which periods since 2013/01/01 did we see the most volatility?
+
+```{r, echo=FALSE}
+bitcoin <- Quandl("BAVERAGE/USD") %>% tbl_df()
+bitcoin <- rename(bitcoin, Avg = `24h Average`, Total.Volume = `Total Volume`)
+bitcoin$Date <- ymd(bitcoin$Date)
+bitcoin %<>% arrange(Date)
+date.range <- interval(ymd(20130101), ymd(20150601))
+bitcoin <- filter(bitcoin, Date %within% date.range)
+bitcoin <-
+  mutate(bitcoin, month=month(Date)) %>%
+  mutate(
+    quarter = ifelse(month %in% c(1,2,3), "Q1",
+                    ifelse(month %in% c(4,5,6), "Q2",
+                           ifelse(month %in% c(7,8,9), "Q3", "Q4")
+                    ))
+  )
+bitcoin$Season <- factor(bitcoin$quarter, levels=c("Q1", "Q2", "Q3", "Q4"))
+
+bitcoin %<>% mutate(per.chg = (Avg - lag(Avg))/lag(Avg))
+
+ggplot(data=bitcoin, aes(x=Date, y=per.chg)) +
+  geom_point(aes(col=quarter)) +
+  xlab("Date") + ylab("Percent Change from Previous Day") + 
+  ggtitle("Volatility of Bitcoin Prices (Day-to-Day)")
+```
+
+It appears that 2nd and 4th quarter of 2013 had the most price volatility. The price of bitcoins was the most stable in the 2nd and 3rd quarter of 2014.
+
+
+## Question 6:
+
+Compare the volatility of bitcoin prices with the volatility of the price of gold for the same time period.  What do you observe?  
+
+
+```{r, echo=FALSE}
+gold <- Quandl("BUNDESBANK/BBK01_WT5511") %>% tbl_df() 
+gold$Date <- ymd(gold$Date)
+gold %<>% arrange(Date)
+gold <- filter(gold, Date %within% date.range)
+gold %<>% mutate(per.chg = (Value - lag(Value))/lag(Value))
+
+comb <- select(bitcoin,Date,per.chg) %>% mutate(item="bitcoin")
+comb <- bind_rows(comb, select(gold,Date,per.chg) %>% mutate(item="gold"))
+
+ggplot(data=comb, aes(x=Date, y=per.chg)) +
+  geom_point(aes(col=item)) +
+  xlab("Date") + ylab("Percent Change from Previous Day") +
+  ggtitle("Volatility of Bitcoin vs. Gold Prices (Day-to-Day)")
+```
+
+Unsurprisingly, the price of gold is much much less volatile than the price of bitcoins.
+
+
+
+## Question 7:
+
+Answer another question of interest to you about the jukebox data.  
+
+Which day of the week has the most songs played? (Probably Friday)
+
+```{r, echo=FALSE}
+jukebox2 %<>% mutate(day.of.week = wday(Date, label=TRUE))
+dayofweek <- count(jukebox2, day.of.week)
+
+ggplot(data=dayofweek, aes(x=day.of.week, y=n, fill="red")) + geom_bar(stat="identity") + guides(fill=FALSE) +
+  xlab("Day of Week") + ylab("Songs Played") + ggtitle("Jukebox Usage by Day of the Week")
+```
+
+My guess was correct.
+
+
+## Question 8:
+
+Answer another question of interest to you using the data on Quandl.  Preferably on a topic you are interested in. 
+
+Is the Apple stock (aapl) a stationary time series?
+
+
+```{r, echo=FALSE}
+aapl <- Quandl("GOOG/NASDAQ_AAPL") %>% tbl_df()
+aapl <- select(aapl,Date,Close)
+aapl$Date <- ymd(aapl$Date)
+aapl %<>% arrange(Date)
+
+model1 <- lm(Close ~ lag(Close), data=aapl)
+summary(model1)
+NeweyWest(model1)
+cf.model1 <- c("HAC SE Corrected Confidence Interval", 1.0009708-1.96*NeweyWest(model1)[2,2], 1.0009708+1.96*NeweyWest(model1)[2,2])
+# I couldn't pull the coefficient estimate out of model1 properly so I had to manually enter it.
+cf.model1
+
+ggplot(data=aapl, aes(x=Date,y=Close)) + geom_point() + geom_smooth(size=2) +
+  xlab("Time") + ylab("Closing Price (USD)") + ggtitle("aapl")
+```
+
+The estimate for rho is above 1. After adjusting the standard error for serial correlation with HAC standard errors, we find that 1 is not in the 95% confidence interval for rho. This means that aapl is non-stationary over time meaning that it should not regress to a mean and should be continually growing. Also, random shocks should move the stock to a new trend and not return to any old ones. However, rho is extremely close to 1 which means aapl shouldn't just be blowing up but rather similar to a random walk model where rho=1. This suggested pattern is reflected in the graph of aapl's price over time. Don't believe all those stock analysts that say they can predict aapl's movements.
+

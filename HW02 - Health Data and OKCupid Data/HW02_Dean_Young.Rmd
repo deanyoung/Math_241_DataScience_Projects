@@ -1,0 +1,423 @@
+---
+title: 'MATH 214: Homework 02'
+author: "Dean Young"
+date: "Due Wednesday 2015/3/4 5:00pm on Moodle"
+output: html_document
+---
+
+##NOTE: DATA FOR THIS HOMEWORK IS PRIVATE AND CANNOT BE SHARED. PLEASE VIEW CODE ONLY. RMD FILE WILL NOT RUN.
+
+```{r, echo=FALSE}
+suppressPackageStartupMessages(library(foreign))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(stringr))
+suppressPackageStartupMessages(library(ROCR))
+
+```
+
+
+## Question 1a:
+
+
+```{r, echo=FALSE}
+url <- "http://www.stat.columbia.edu/~gelman/arm/examples/pollution/pollution.dta"
+pollution <- read.dta(url) %>% tbl_df()
+
+model1 <- lm(mort ~ nox, data=pollution)
+summary(model1)
+c1 <- coefficients(model1)
+scatter1 <- select(pollution,mort,nox)
+scatter1 %<>% mutate(resid1 = residuals(model1))
+
+ggplot(pollution, aes(x=nox, y=mort)) + 
+  geom_point(size=3) + 
+  geom_abline(intercept=c1[1], slope=c1[2], col="#F8766D", size=1) + 
+  ylab("Age-Adjusted Mortality Rate/100K people") + 
+  xlab("Relative Nitric Oxide Level") + ggtitle("Linear Regression Plot")
+
+ggplot(scatter1, aes(x=nox, y=resid1)) + geom_point(size=3) + 
+  ggtitle("Residual Plot") + ylab("Residuals") + xlab("Relative Nitric Oxide Level")
+
+```
+
+Based on the scatter plot, a linear model seems inappropriate. Logging the variables would help adjust the model to better account for the diminshing returns on effect that nitric oxides appears to have on mortality. The residual plot shows a lot of variance as well. The slope coefficient for nitric oxides is not even statistically significant.
+
+## Question 1b:
+
+```{r, echo=FALSE}
+pollution %<>% mutate(l.mort = log(mort), l.nox = log(nox))
+
+model2 <- lm(l.mort ~ l.nox, data=pollution)
+summary(model2)
+c2 <- coefficients(model2)
+scatter2 <- select(pollution,l.mort,l.nox)
+scatter2 %<>% mutate(resid2 = residuals(model2))
+
+ggplot(pollution, aes(x=l.nox, y=l.mort)) + geom_point(size=3) + 
+  geom_abline(intercept=c2[1], slope=c2[2], col="#F8766D", size=1) + ylab("Age-Adjusted Mortality Rate/100K people") + 
+  xlab("Relative Nitric Oxide Level") + ggtitle("Log-Log Regression Model")
+ggplot(scatter2, aes(x=l.nox, y=resid2)) + geom_point(size=3) + 
+  ggtitle("Residual Plot") + ylab("Residuals") + xlab("Log Relative Nitric Oxide Level")
+
+```
+
+After switching to a log-log model (logging both independent and dependent variables), the fit looks much better. The residual plot appears to show much less variability as well. The slope coefficient is now statistically significant at the alpha = .05 level.
+
+## Question 1c:
+
+```{r, echo=FALSE}
+exp(c2[2])
+
+```
+
+A 1% increase in relative nitric oxide potential leads to a roughly 1.6% increase in age-adjusted mortality rate
+
+## Question 1d:
+
+```{r, echo=FALSE}
+ggplot(pollution, aes(x=hc, y=mort)) + geom_point(size=3) + ylab("Age-Adjusted Mortality Rate/100K people") + 
+  xlab("Relative Hydrocarbon Level")
+ggplot(pollution, aes(x=so2, y=mort)) + geom_point(size=3) + ylab("Age-Adjusted Mortality Rate/100K people") + 
+  xlab("Relative Sulfur Dioxide Level") 
+
+pollution %<>% mutate(l.hc = log(hc), l.so2 = log(so2))
+
+model3a <- lm(l.mort ~ l.nox + l.hc + l.so2, data=pollution) 
+summary(model3a)
+c3a <- coefficients(model3a)
+
+exp(c3a)
+
+```
+
+The scatter plots of mortality rates in relation to the other two gas variables appear to show a log-log model is applicable once again. Indeed, the log-log model for all three variables return statistically significant coefficients at the alpha=.05 level.
+
+A 1% increase in relative nitric oxide potential leads to a 6.0% increase in mortality. A 1% increase in relative
+hydrocarbon potential leads to a 6.0% decrease in mortality. A 1% increase in relative sulphur dioxide potential 
+leads to a 1.4% increase in mortality.
+
+## Question 1e:
+
+```{r,echo=FALSE}
+pollution.a <- slice(pollution, 1:30)
+pollution.b <- slice(pollution, 31:60)
+model3b <- lm(l.mort ~ l.nox + l.hc + l.so2, data=pollution.a)
+summary(model3b)
+c3b <- coefficients(model3b)
+
+scatter3 <- select(pollution.b, l.mort, l.nox, l.hc, l.so2)
+scatter3 %<>% mutate(fit3b = c3b[1] + c3b[2]*l.nox + c3b[3]*l.hc + c3b[4]*l.so2, resid3b = l.mort - fit3b)
+
+residual.mean <- mean(scatter3$resid3b)
+table(residual.mean)
+
+ggplot(scatter3, aes(x=fit3b, y=resid3b)) + 
+  geom_point(size=3) + 
+  geom_hline(yintercept=residual.mean, color="red", size=2) + 
+  xlab("Fitted Values") + 
+  ylab("Residuals") +
+  ggtitle("Residual Plot using Model Derived from 1st Half of Data Set")
+```
+
+When using the model derived from the 1st half of the data to fit the second half, the results look pretty good. By construction of the least squares estimator, the residuals are supposed to have an average of 0. The residuals using the derived model has a mean pretty close to 0. In addtion, when plotting the residuals versus the fitted values, the variance looks pretty reasonable.
+
+## Question 2: 
+
+Using the OkCupid data, fit what you think is a good predictive model for gender and interpret all results.
+
+```{r, echo=FALSE}
+profiles <- read.csv("profiles.csv", header=TRUE) %>% tbl_df()
+
+essays <- select(profiles, contains("essay"))
+profiles <- select(profiles, -contains("essay"))
+
+profiles <- mutate(profiles, is.female = ifelse(sex=="f", 1, 0))
+
+profiles$last_online <- str_sub(profiles$last_online, 1, 10) %>% as.Date()
+
+profiles %<>% mutate(has.sign = ifelse(sign == "", 0, 1))
+
+find.query <- function(char.vector, query){
+  which.has.query <- grep(query, char.vector, ignore.case = TRUE)
+  length(which.has.query) != 0
+}
+profile.has.query <- function(data.frame, query){
+  query <- tolower(query)
+  has.query <- apply(data.frame, 1, find.query, query=query)
+  return(has.query)
+}
+
+ROC.curve <- function(probs, truth){
+  pred <- prediction(probs, truth)
+  perf <- performance(pred, "tpr", "fpr")
+  plot(perf, col="black", lty=3, lwd=3)
+  auc <- unlist(slot(performance(pred,"auc"), "y.values"))
+  title(paste("AUC = ", round(auc,3)))
+  abline(c(0,1))
+}
+
+profiles$has.wine <- profile.has.query(data.frame = essays, query = "wine")
+profiles$has.stem <- profile.has.query(data.frame = profiles, query = "science")
+profiles$has.education <- profile.has.query(data.frame = profiles, query = "education")
+profiles$has.athletic <- profile.has.query(data.frame = profiles, query = "athletic")
+
+
+mod1 <- glm(is.female ~ has.sign + has.wine + has.stem + has.education + has.athletic, data=profiles, family=binomial)
+summary(mod1)
+
+mod2 <- glm(is.female ~ has.sign + has.wine + has.stem + has.education + has.athletic + height, data=profiles, family=binomial)
+summary(mod2)
+
+testmod <- lm(height ~ has.sign, data=profiles)
+summary(testmod)
+
+mod.final <- glm(is.female ~ has.wine + has.stem + has.education + has.athletic + height, data=profiles, family=binomial)
+summary(mod.final)
+c.mod.final <- coefficients(mod.final)
+
+exp(c.mod.final)
+```
+
+I used several stereotypical explanatory variables in my model. I included variables that indicated if the person worked in the STEM field or in education. I included a variable that indicated if the person said they were "athletic". To make things interesting, I also included a variable that indicated if the person filled in the "zodiac sign" field. I suspect that women care more about that than men.
+
+Interestingly enough, all the variables are statistically significant in the expected direction. However, when you include height, the significance shifts from "has.sign" to "height". When checking the correlation between the two, you see a strong correlation. That means in the first model, the sign variable was only statistically significant due to omitted variable bias. Including height eliminates this bias, for some reason.
+
+If someone includes the word "wine" in their profile, that more than doubles the odds that they are a woman. If someone works in the STEM field, that more than halves the odds that they are a woman. If someone works in education, that more than doubles the odds that they are a woman. If someone indicates that they are athletic, that more than halves the odds that they are a woman. Every one inch increase in height more than halves the odds that they are a woman.
+
+``` {r, echo=FALSE}
+threshold <- 0.50
+p <- qplot(fitted(mod.final)) + xlab("Fitted p.hat") + ggtitle("Distribution of p.hats: Final Model") + geom_vline(xintercept=threshold, col="red", size=2)
+p
+
+predictions <-
+  select(profiles, is.female) %>%
+  mutate(phat=fitted(mod.final)) %>%
+  mutate(predicted.female=ifelse(phat > threshold, 1, 0))
+
+performance <- table(truth=predictions$is.female, predicted=predictions$predicted.female)
+performance
+mosaicplot(performance, main="Truth vs Predicted")
+
+FPR <- 471/(471+3116)
+TPR <- 1921/(1921+487)
+table(FPR)
+table(TPR)
+
+ROC.curve(predictions$phat, predictions$is.female)
+
+points(FPR, TPR, pch=19, cex=2)
+```
+
+I used a threshold for decision making of .50. Luckily, most of the distribution sits far away from the threshold, meaning we are more sure of our predictions.
+
+Unforunately, when creating the mosaic plot of correct vs incorrect predictions, and displaying the ROC curve, this more complicated model does no better than the original height model shown in class. It seems that including all of the other indicator variables only helps improve predicting men more often. In addition, there is a tradeoff, with more woman predicted to be men. The ROC curve also gives us roughly the same AUC as before. I'm not super disappointed because the previous model just using height already did extremely well in predicting gender and improving it would lead to diminishing returns. It would be better to just use the simpler model with just height.
+
+Let's see how my model fairs without using height...
+
+```{r, echo=FALSE}
+mod.no.height <- glm(is.female ~ has.wine + has.stem + has.education + has.athletic, data=profiles, family=binomial)
+
+p <- qplot(fitted(mod.no.height)) + xlab("Fitted p.hat") + ggtitle("Distribution of p.hats: Sans Height Model") + geom_vline(xintercept=threshold, col="red", size=2)
+p
+
+predictions <-
+  select(profiles, is.female) %>%
+  mutate(phat=fitted(mod.no.height)) %>%
+  mutate(predicted.female=ifelse(phat > threshold, 1, 0))
+predictions
+
+count(predictions, is.female, predicted.female)
+
+performance <- table(truth=predictions$is.female, predicted=predictions$predicted.female)
+performance
+mosaicplot(performance, main="Truth vs Predicted")
+
+FPR2 <- 347/(347+3240)
+TPR2 <- 557/(557 + 1851)
+table(FPR2)
+table(TPR2)
+
+ROC.curve(predictions$phat, predictions$is.female)
+points(FPR2, TPR2, pch=19, cex=2)
+
+```
+
+The result is not abysmal but still disappointing. The sans-height model was able to predict a lot of men correctly, but also predicted a lot of women to be men. This is clearly shown in the distribution of p.hats, with most of the data on the left side. A lot of the datat is also stacked near the treshold, meaning the model isn't very sure when it predicts men.
+
+
+
+```{r, echo=FALSE}
+regression.line <- function(x, b){
+  linear.equation <- b[1] + b[2]*x
+  1/(1+exp(-linear.equation))
+}
+
+model.height <- glm(is.female ~ height, data=profiles, family=binomial)
+c.height <- coefficients(model.height)
+
+graph.height <- ggplot(data=profiles, aes(x=jitter(height), y=jitter(is.female))) +
+  geom_point() + 
+  stat_function(fun = regression.line, args=list(b=c.height), color="blue", size=2) +
+  xlab("height") +
+  ylab("is female") +
+  ggtitle("Simple Predictive Model: Height Only")
+  
+graph.height
+
+```
+
+A height only predictive model shows a nice distinction between men and women. It's no surprise that it predicts gender very well.
+
+
+## Question 3:
+
+Keep a tone of where you would be sharing your findings with state public health officials:
+
+Perform exploratory data analyses: basic summaries, relevant maps (more on mapping making on Monday)
+Conduct appropriate regressions along with interpretations
+Do this for breast and lung cancer separately.
+
+
+```{r, echo=FALSE}
+SEER <- read.csv("Space Time Surveillance Counts 11_05_09.txt", header=TRUE) %>% tbl_df()
+SEER %<>% rename(cancer=SiteRecodeTxt, fips = StateCoTractComb)
+census <- read.csv("census.csv", header=TRUE) %>% tbl_df()
+census %<>% rename(fips = Geo_FIPS, pop = SE_T001_001, Male = SE_T005_002, Female = SE_T005_003, 
+                   sixtyfive = SE_T008_011, seventyfour = SE_T008_012, eightyfive = SE_T008_013, White = SE_T014_002, 
+                   Black = SE_T014_003, Indian = SE_T014_004, Asian = SE_T014_005, Pacific = SE_T014_006, 
+                   med.income = SE_T093_001)
+census %<>% mutate(over.sixtyfive = sixtyfive + seventyfour + eightyfive, prop.over=over.sixtyfive/pop, prop.male=Male/pop,
+                   prop.female=Female/pop, prop.white=White/pop, prop.black=Black/pop, prop.indian=Indian/pop, 
+                   prop.asianpacific=(Asian+Pacific)/pop)
+census %<>% select(Geo_NAME, fips, pop, Male, Female, White, Black, 
+                   Indian, Asian, Pacific, med.income, over.sixtyfive, prop.over, prop.male, prop.female, prop.white,
+                   prop.black, prop.indian, prop.asianpacific)
+
+SEER <- left_join(SEER,census,by="fips")
+
+SEER.Breast <- filter(SEER, cancer=="Breast ")
+SEER.Lung <- filter(SEER, cancer=="Lung and Bronchus ")
+
+SEER.Breast.Compiled <- count(SEER.Breast,fips)
+SEER.Breast.Compiled <- left_join(SEER.Breast.Compiled, 
+                                  select(census, fips, med.income, pop, over.sixtyfive, prop.over, prop.male, 
+                                         prop.female, prop.white, prop.black, prop.indian, prop.asianpacific),
+                                  by="fips")
+
+SEER.Lung.Compiled <- count(SEER.Lung,fips)
+SEER.Lung.Compiled <- left_join(SEER.Lung.Compiled, 
+                                  select(census, fips, med.income, pop, over.sixtyfive, prop.over, prop.male, 
+                                         prop.female, prop.white, prop.black, prop.indian, prop.asianpacific),
+                                  by="fips")
+
+b.slope <- lm(n/pop ~ med.income, data=SEER.Breast.Compiled)
+bs <- coefficients(b.slope)
+ggplot(SEER.Breast.Compiled, aes(x=med.income,y=n/pop)) + geom_point() + 
+  geom_abline(intercept=bs[1],slope=bs[2],col="red",size=1) +
+  xlab("Median Income") + ylab("Proportion") + 
+  ggtitle("Association of Median Income with Proportion of Population with Breast Cancer")
+
+l.slope <- lm(n/pop ~ med.income, data=SEER.Lung.Compiled)
+ls <- coefficients(l.slope)
+ggplot(SEER.Lung.Compiled, aes(x=med.income,y=n/pop)) + geom_point() + 
+  geom_abline(intercept=ls[1],slope=ls[2],col="red",size=1) +
+  xlab("Median Income") + ylab("Proportion") + 
+  ggtitle("Association of Median Income with Proportion of Population with Lung Cancer")
+
+
+b.slope <- lm(n/pop ~ prop.over, data=SEER.Breast.Compiled)
+bs <- coefficients(b.slope)
+ggplot(SEER.Breast.Compiled, aes(x=over.sixtyfive/pop,y=n/pop)) + geom_point() +
+  geom_abline(intercept=bs[1],slope=bs[2],col="red",size=1) +
+  xlab("Senior Population") + ylab("Proportion") + 
+  ggtitle("Association of Number of Seniors with Proportion of Population with Breast Cancer")
+
+l.slope <- lm(n/pop ~ prop.over, data=SEER.Lung.Compiled)
+ls <- coefficients(l.slope)
+ggplot(SEER.Lung.Compiled, aes(x=over.sixtyfive/pop,y=n/pop)) + geom_point() +
+  geom_abline(intercept=ls[1],slope=ls[2],col="red",size=1) +
+  xlab("Senior Population") + ylab("Proportion") + 
+  ggtitle("Association of Number of Seniors with Proportion of Population with Lung Cancer")
+
+
+SEER.Breast.Race <- count(SEER.Breast, RaceGrp)
+a <- c(sum(census$Indian),sum(census$Asian) + sum(census$Pacific),sum(census$Black),sum(census$White))
+a <- data_frame(a) %>% rename(tot=a)
+SEER.Breast.Race %<>% filter(RaceGrp != "Other/Unknown") %>% bind_cols(a) %>% 
+  mutate(prop=n/tot, se=sqrt(prop*(1-prop)/tot)) %>% arrange(prop)
+
+SEER.Breast.Race$RaceGrp <- factor(SEER.Breast.Race$RaceGrp, levels=unique(SEER.Breast.Race$RaceGrp) )
+
+ggplot(SEER.Breast.Race, aes(x=RaceGrp, y=prop)) + 
+  geom_bar(stat="identity") + 
+  geom_errorbar(aes(ymax=prop+se, ymin=prop-se), col="red") +
+  xlab("Race") + ylab("Proportion") + ggtitle("Proportion with Breast Cancer by Race")
+
+SEER.Lung.Race <- count(SEER.Lung, RaceGrp)
+SEER.Lung.Race %<>% filter(RaceGrp != "Other/Unknown") %>% bind_cols(a) %>% 
+  mutate(prop=n/tot, se=sqrt(prop*(1-prop)/tot)) %>% arrange(prop)
+
+SEER.Lung.Race$RaceGrp <- factor(SEER.Lung.Race$RaceGrp, levels=unique(SEER.Lung.Race$RaceGrp) )
+
+ggplot(SEER.Lung.Race, aes(x=RaceGrp, y=prop)) + 
+  geom_bar(stat="identity") + 
+  geom_errorbar(aes(ymax=prop+se, ymin=prop-se), col="red") +
+  xlab("Race") + ylab("Proportion") + ggtitle("Proportion with Lung Cancer by Race")
+
+
+SEER.Breast.Gender <- count(SEER.Breast, SexGrp)
+b <- c(sum(census$Female),sum(census$Male))
+b <- data_frame(b) %>% rename(tot=b)
+SEER.Breast.Gender %<>% bind_cols(b) %>% 
+  mutate(prop=n/tot, se=sqrt(prop*(1-prop)/tot)) %>% arrange(prop)
+
+ggplot(SEER.Breast.Gender, aes(x=SexGrp, y=prop)) + 
+  geom_bar(stat="identity") + 
+  geom_errorbar(aes(ymax=prop+se, ymin=prop-se), col="red") +
+  xlab("Gender") + ylab("Proportion") + ggtitle("Proportion with Breast Cance by Gender")
+
+SEER.Lung.Gender <- count(SEER.Lung, SexGrp)
+SEER.Lung.Gender %<>% filter(SexGrp != "Transsexual") %>% bind_cols(b) %>% 
+  mutate(prop=n/tot, se=sqrt(prop*(1-prop)/tot)) %>% arrange(prop)
+
+ggplot(SEER.Lung.Gender, aes(x=SexGrp, y=prop)) + 
+  geom_bar(stat="identity") + 
+  geom_errorbar(aes(ymax=prop+se, ymin=prop-se), col="red") +
+  xlab("Gender") + ylab("Proportion") + ggtitle("Proportion with Lung Cancer by Gender")
+```
+
+The initial exploratory analysis shows some expected and unexpected results. It is not surprising that areas with more seniors (proportion of population of people over 65) will have more cancer incidence. It is also not surprising that the vast majority of breast cancer cases are with women. For lung cancer, the occurance of cancer declines with increasing income. What is surprising is that this is not the case for breast cancer. One would expect that more income leads to healthier living and better medical care. Also, I am not sure why whites seem to be on the short end of the stick for both lung and breast cancer. By far, they have the most proportional occurances of cancer. Asian/Pacific Islanders seem have a much smaller occurance of lung cancer but not so much with breast cancer. This could perhaps be studies further in biology. I will now use a poisson regression and incorporate all of these variables at once.
+
+
+```{r, echo=FALSE}
+final.model.breast <- glm(n ~ med.income + prop.over + prop.female + prop.black + prop.asianpacific + 
+                            prop.indian, family=poisson, offset=log(pop), data=SEER.Breast.Compiled)
+summary(final.model.breast)
+bc <- coefficients(final.model.breast)
+
+exp(bc[2])^10000
+exp(bc[3:7])^.01
+
+final.model.lung <- glm(n ~ med.income + prop.over + prop.female  + prop.black + prop.asianpacific + 
+                            prop.indian, family=poisson, offset=log(pop), data=SEER.Lung.Compiled)
+summary(final.model.lung)
+lc <- coefficients(final.model.lung)
+
+exp(lc[2])^10000
+exp(lc[3:7])^.01
+
+```
+
+The results more or less match up with the hypothesis generated by the exploratory analysis. The proportion of males and proportion of whites were not included in order to set a baseline and prevent multicollinearity. I will interperate only the statistically significant coefficients (alpha=.05). Take note that the raw output provides information on increases of $1 for median income and 100% for proportions, which are not helpful. They have been adjusted so that the interpretation can be made for increases of $10k for median income and 1% for proportions. 
+
+A $10k increase in median income leads to a roughly 6.5% increase in the occurance of breast cancer. This is odd. A 1% increase in proportion of seniors leads to a 3.6% increase in occurance of breast cancer. A 1% increase in proportion of females leads to a 1.3% increase in occurance of breast cancer versus males. Only asian/pacific had a significant coefficient. A 1% increase in proportion of asian/pacific people lead to a 0.3% decline in occurance of breast cancer versus whites. It appears that being a minority doesn't help you much to avoid breast cancer and even being asian only helps you a little bit.
+
+The same coefficients that were signficant for breast cancer are significant for lung cancer except for gender. A $10k increase in median income leads to a 8% decrease in the occurance of lung cancer. A 1% increase in the proportion of seniors leads to a 4% increase in the occurance of lung cancer. Gender does not matter for lung cancer occurance, contrary to what one would expect given the bar chart in the exploratory data analysis section. Once again, asian/pacific is the only statistically significant coefficient. A 1% increase in the proportion of asian/pacifics leads to a 1% decrease in the occurance of lung cancer relative to whites. 
+
+The most interesting result is definitely that asian/pacific islanders reduce occurance of cancer. I wonder if it is due to biological reasons, healthier living styles, or both.
+
+
+
+
